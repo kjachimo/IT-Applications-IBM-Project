@@ -30,7 +30,16 @@ version = "20130505-2"
 
 class Client:
     def __init__(
-        self, H=None, p=None, i=None, e=None, t=None, s=None, d=None, vision=False
+        self,
+        H=None,
+        p=None,
+        i=None,
+        e=None,
+        t=None,
+        s=None,
+        d=None,
+        vision=False,
+        parse_command_line=True,
     ):
         self.vision = vision
 
@@ -42,7 +51,8 @@ class Client:
         self.stage = 3  # 0=Warm-up, 1=Qualifying 2=Race, 3=unknown <Default=3>
         self.debug = False
         self.maxSteps = 100000  # 50steps/second
-        self.parse_the_command_line()
+        if parse_command_line:
+            self.parse_the_command_line()
         if H:
             self.host = H
         if p:
@@ -79,10 +89,10 @@ class Client:
                 self.so.sendto(initmsg.encode(), (self.host, self.port))
             except socket.error:
                 sys.exit(-1)
-            sockdata = str()
+            sockdata = ""
             try:
-                sockdata, addr = self.so.recvfrom(data_size)
-                sockdata = sockdata.decode("utf-8")
+                received, addr = self.so.recvfrom(data_size)
+                sockdata = received.decode("utf-8")
             except socket.error:
                 print("Waiting for server on %d............" % self.port)
                 print("Count Down : " + str(n_fail))
@@ -164,12 +174,12 @@ class Client:
         """Server's input is stored in a ServerState object"""
         if not self.so:
             return
-        sockdata = str()
+        sockdata = ""
 
         while True:
             try:
-                sockdata, addr = self.so.recvfrom(data_size)
-                sockdata = sockdata.decode("utf-8")
+                received, addr = self.so.recvfrom(data_size)
+                sockdata = received.decode("utf-8")
             except socket.error:
                 print(".", end=" ")
             if "***identified***" in sockdata:
@@ -207,7 +217,7 @@ class Client:
             message = repr(self.R)
             self.so.sendto(message.encode(), (self.host, self.port))
         except socket.error as emsg:
-            print("Error sending to server: %s Message %s" % (emsg[1], str(emsg[0])))
+            print("Error sending to server: %s" % str(emsg))
             sys.exit(-1)
         if self.debug:
             print(self.R.fancyout())
