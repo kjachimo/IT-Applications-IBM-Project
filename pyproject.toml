@@ -1,0 +1,11 @@
+[project]
+name = "it-applications-ibm-project"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.24",
+    "torch>=2.2",
+    "gymnasium>=1.0.0",
+    "stable-baselines3>=2.0.0",
+    "tensorboard>=2.0.0",
+]

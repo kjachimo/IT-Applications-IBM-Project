@@ -60,6 +60,7 @@ class GymTorcsWrapper(gym.Env):
     def step(self, action):
         act = np.copy(action)
         
+        # Speed-sensitive steering: structurally prevent PPO exploration noise from causing spin-outs at high speeds
         steer_damping = max(0.15, 1.0 - (self.current_speed_x / 120.0))
         act[0] = act[0] * steer_damping
         
@@ -143,6 +144,7 @@ class GymTorcsWrapper(gym.Env):
         if done:
             print(f"[PPO Custom] Episode done: off_track={info.get('off_track')} backward={info.get('backward')} stalled={info.get('stalled')} timeout={info.get('timeout')}")
             if 'last_lap_time' in info and info['last_lap_time'] > 0:
+                reward += 100.0   
                 print(f"[PPO Custom] LAP COMPLETED: Last Lap Time: {info['last_lap_time']}s")
             elif 'cur_lap_time' in info and info['cur_lap_time'] > 0:
                 print(f"[PPO Custom] Time survived: {info['cur_lap_time']}s (Dist: {info.get('dist_raced', 0)}m)")
@@ -152,8 +154,6 @@ class GymTorcsWrapper(gym.Env):
     def close(self):
         self.env.close(stop_torcs=True)
 
-
-from stable_baselines3.common.logger import TensorBoardOutputFormat
 
 class TensorboardLapTimeCallback(CheckpointCallback):
     """
@@ -185,17 +185,17 @@ class TensorboardLapTimeCallback(CheckpointCallback):
 
             if dist_raced > self.best_dist:
                 self.best_dist = dist_raced
-                best_model_path = Path(self.save_path) / "ppo_best_distance"
+                best_model_path = Path(self.save_path) / "finetuned_ppo_best_distance"
                 self.model.save(str(best_model_path))
-                print(f"\n[Callback] New best distance: {self.best_dist:.2f}m! Model saved to ppo_best_distance.zip")
+                print(f"\n[Callback] New best distance: {self.best_dist:.2f}m! Model saved to finetuned_ppo_best_distance.zip")
                 if writer is not None:
                     writer.add_scalar("race_per_run/best_dist_overall", self.best_dist, episode_count)
 
             if "last_lap_time" in info and info["last_lap_time"] > 0:
-                print(f"\nSUCCESS! The car completed a full lap in {info['last_lap_time']} seconds!")
+                print(f"\nSUCCESS! The car completed a full lap in {info['last_lap_time']} seconds! ")
                 print(f"Max distance recorded overall: {self.best_dist:.2f}m")
                 print("Stopping training early to allow further training from this best checkpoint...\n")
-                best_lap_path = Path(self.save_path) / "ppo_full_lap_success"
+                best_lap_path = Path(self.save_path) / "finetuned_ppo_full_lap_success"
                 self.model.save(str(best_lap_path))
                 return False
             
@@ -203,9 +203,9 @@ class TensorboardLapTimeCallback(CheckpointCallback):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train a TORCS AI using PPO (On-Policy)")
-    parser.add_argument("--timesteps", type=int, default=100000)
-    parser.add_argument("--relaunch-every", type=int, default=3)
+    parser = argparse.ArgumentParser(description="Fine-tune a TORCS AI using PPO (On-Policy)")
+    parser.add_argument("--timesteps", type=int, default=500000)
+    parser.add_argument("--relaunch-every", type=int, default=6)
     parser.add_argument("--port", type=int, default=3001)
     parser.add_argument("--vision", action="store_true")
     
@@ -213,9 +213,21 @@ def parse_args():
                         help="Launch command, e.g. 'torcs' or 'wine wtorcs.exe'.")
     parser.add_argument("--torcs-dir", type=str, default="",
                         help="Working directory for launch command.")
-    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints/checkpoints_ppo")
-    parser.add_argument("--checkpoint-every", type=int, default=5000)
+    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints_ppo")
+    parser.add_argument("--checkpoint-every", type=int, default=10000)
     parser.add_argument("--autostart-script", type=str, default="gym_torcs/autostart.sh")
+    
+    # Fine-tuning specific arguments
+    parser.add_argument("--model-path", type=str, default="checkpoints_ppo/exp4/ppo_best_distance.zip",
+                        help="Path to the checkpoint zip file to load.")
+    parser.add_argument("--learning-rate", type=float, default=5e-6,
+                        help="Lower learning rate for fine-tuning.")
+    parser.add_argument("--ent-coef", type=float, default=0.0,
+                        help="Lower entropy coefficient to reduce exploration noise.")
+    parser.add_argument("--clip-range", type=float, default=0.05,
+                        help="Tighten PPO clipping to prevent destructive updates to the good policy.")
+    parser.add_argument("--n-epochs", type=int, default=3,
+                        help="Fewer epochs to prevent overfitting to recent noisy batches.")
     
     return parser.parse_args()
 
@@ -223,7 +235,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    print("Configuring Process Manager...")
+    print("Configuring Process Manager for Fine-Tuning...")
     process_manager = TorcsProcessManager(
         autostart_script=args.autostart_script,
         config=TorcsProcessConfig(
@@ -250,47 +262,45 @@ def main():
 
     ckpt_dir = Path(args.checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
-
-    model_file_final = ckpt_dir / "ppo_final.zip"
-    model_file_interrupted = ckpt_dir / "ppo_interrupted.zip"
     
-    if model_file_interrupted.exists():
-        print(f"Loading existing PPO Agent from {model_file_interrupted}...")
-        model = PPO.load(str(ckpt_dir / "ppo_interrupted"), env=env, tensorboard_log=str(ckpt_dir / "logs"))
-    elif model_file_final.exists():
-        print(f"Loading existing PPO Agent from {model_file_final}...")
-        model = PPO.load(str(ckpt_dir / "ppo_final"), env=env, tensorboard_log=str(ckpt_dir / "logs"))
-    else:
-        print("Initializing new PPO Agent...")
-        model = PPO(
-            "MlpPolicy", 
-            env, 
-            verbose=1,
-            policy_kwargs=dict(net_arch=[dict(pi=[256, 256], vf=[256, 256])]),
-            ent_coef=0.01,          
-            learning_rate=1e-4,
-            n_steps=2048,          
-            batch_size=64,
-            n_epochs=10,         
-            gamma=0.99,
-            gae_lambda=0.95,
-            tensorboard_log=str(ckpt_dir / "logs") 
-        )
+    model_path = Path(args.model_path)
+    if not model_path.exists():
+        raise FileNotFoundError(f"Model file not found at {args.model_path}. Provide valid --model-path.")
+
+    print(f"Applying Fine-Tuning Hyperparameters: LR={args.learning_rate}, ENT={args.ent_coef}, CLIP={args.clip_range}, EPOCHS={args.n_epochs}")
+    
+    custom_objects = {
+        "learning_rate": args.learning_rate,
+        "ent_coef": args.ent_coef,
+        "clip_range": args.clip_range,
+        "n_epochs": args.n_epochs,
+    }
+        
+    print(f"Loading existing PPO Agent from {model_path}...")
+    model = PPO.load(
+        str(model_path), 
+        env=env, 
+        tensorboard_log=str(ckpt_dir / "logs"), 
+        custom_objects=custom_objects
+    )
+    
+    for param_group in model.policy.optimizer.param_groups:
+        param_group["lr"] = args.learning_rate
 
     checkpoint_callback = TensorboardLapTimeCallback(
         save_freq=args.checkpoint_every, 
         save_path=str(ckpt_dir), 
-        name_prefix='ppo_torcs'
+        name_prefix='finetuned_ppo_torcs'
     )
 
-    print(f"Starting Training for {args.timesteps} timesteps...")
+    print(f"Starting Fine-Tuning for {args.timesteps} timesteps...")
     try:
         model.learn(total_timesteps=args.timesteps, callback=checkpoint_callback, reset_num_timesteps=False)
-        model.save(str(ckpt_dir / "ppo_final"))
+        model.save(str(ckpt_dir / "finetuned_ppo_final"))
         print("Training Completed and Model Saved!")
     except KeyboardInterrupt:
         print("\nTraining interrupted! Saving current model...")
-        model.save(str(ckpt_dir / "ppo_interrupted"))
+        model.save(str(ckpt_dir / "finetuned_ppo_interrupted"))
     finally:
         env.close()
 

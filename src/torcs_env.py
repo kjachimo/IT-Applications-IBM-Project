@@ -150,6 +150,10 @@ class TorcsRLEnv:
         obs = dict(self.client.S.d)
 
         reward, done, info = self._compute_reward_done(obs, obs_pre)
+        
+        if self.client.so is None:
+            done = True
+
         self.time_step += 1
 
         if done:

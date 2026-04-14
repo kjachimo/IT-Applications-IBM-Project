@@ -3,7 +3,7 @@ from pathlib import Path
 
 import gymnasium as gym
 import numpy as np
-from stable_baselines3 import PPO
+from stable_baselines3 import SAC
 from stable_baselines3.common.callbacks import CheckpointCallback
 
 from src.torcs_env import TorcsRLEnv
@@ -13,7 +13,7 @@ from src.torcs_process import TorcsProcessConfig, TorcsProcessManager
 class GymTorcsWrapper(gym.Env):
     """
     Wraps the custom TorcsRLEnv from 'src.torcs_env' into a standard gym.Env
-    so it can be consumed natively by Stable-Baselines3 algorithms like PPO.
+    so it can be consumed natively by Stable-Baselines3 algorithms like SAC.
     """
     def __init__(self, torcs_env: TorcsRLEnv):
         super(GymTorcsWrapper, self).__init__()
@@ -60,6 +60,7 @@ class GymTorcsWrapper(gym.Env):
     def step(self, action):
         act = np.copy(action)
         
+        # Speed-sensitive steering: structurally prevent exploration noise from causing heavy spin-outs at high speeds
         steer_damping = max(0.15, 1.0 - (self.current_speed_x / 120.0))
         act[0] = act[0] * steer_damping
         
@@ -141,11 +142,11 @@ class GymTorcsWrapper(gym.Env):
                 pass
                 
         if done:
-            print(f"[PPO Custom] Episode done: off_track={info.get('off_track')} backward={info.get('backward')} stalled={info.get('stalled')} timeout={info.get('timeout')}")
+            print(f"[SAC Custom] Episode done: off_track={info.get('off_track')} backward={info.get('backward')} stalled={info.get('stalled')} timeout={info.get('timeout')}")
             if 'last_lap_time' in info and info['last_lap_time'] > 0:
-                print(f"[PPO Custom] LAP COMPLETED: Last Lap Time: {info['last_lap_time']}s")
+                print(f"[SAC Custom] LAP COMPLETED: Last Lap Time: {info['last_lap_time']}s")
             elif 'cur_lap_time' in info and info['cur_lap_time'] > 0:
-                print(f"[PPO Custom] Time survived: {info['cur_lap_time']}s (Dist: {info.get('dist_raced', 0)}m)")
+                print(f"[SAC Custom] Time survived: {info['cur_lap_time']}s (Dist: {info.get('dist_raced', 0):.2f}m)")
 
         return np.array(next_state, dtype=np.float32), float(reward), bool(done), False, info
 
@@ -153,21 +154,19 @@ class GymTorcsWrapper(gym.Env):
         self.env.close(stop_torcs=True)
 
 
-from stable_baselines3.common.logger import TensorBoardOutputFormat
-
 class TensorboardLapTimeCallback(CheckpointCallback):
     """
     Custom callback to log info variables like Lap Time into TensorBoard seamlessly.
     """
-    def __init__(self, save_freq: int, save_path: str, name_prefix: str = 'ppo_torcs'):
+    def __init__(self, save_freq: int, save_path: str, name_prefix: str = 'sac_torcs'):
         super().__init__(save_freq=save_freq, save_path=save_path, name_prefix=name_prefix)
         self.best_dist = 0.0
     
     def _on_step(self) -> bool:
         super()._on_step()
         
-        done = self.locals.get("dones", [False])[0]
-        if done:
+        done = self.locals.get("dones", [False])
+        if done[0] if isinstance(done, (list, np.ndarray)) else done:
             info = self.locals.get("infos", [{}])[0]
             dist_raced = info.get("dist_raced", 0.0)
             episode_count = info.get("episode_count", 0)
@@ -185,27 +184,27 @@ class TensorboardLapTimeCallback(CheckpointCallback):
 
             if dist_raced > self.best_dist:
                 self.best_dist = dist_raced
-                best_model_path = Path(self.save_path) / "ppo_best_distance"
+                best_model_path = Path(self.save_path) / "sac_best_distance"
                 self.model.save(str(best_model_path))
-                print(f"\n[Callback] New best distance: {self.best_dist:.2f}m! Model saved to ppo_best_distance.zip")
+                print(f"\n[Callback] New best distance: {self.best_dist:.2f}m! Model saved to sac_best_distance.zip")
                 if writer is not None:
                     writer.add_scalar("race_per_run/best_dist_overall", self.best_dist, episode_count)
 
             if "last_lap_time" in info and info["last_lap_time"] > 0:
-                print(f"\nSUCCESS! The car completed a full lap in {info['last_lap_time']} seconds!")
+                print(f"\nSUCCESS! The car completed a full lap in {info['last_lap_time']} seconds! ")
                 print(f"Max distance recorded overall: {self.best_dist:.2f}m")
                 print("Stopping training early to allow further training from this best checkpoint...\n")
-                best_lap_path = Path(self.save_path) / "ppo_full_lap_success"
+                best_lap_path = Path(self.save_path) / "sac_full_lap_success"
                 self.model.save(str(best_lap_path))
-                return False
+                return False 
             
         return True
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train a TORCS AI using PPO (On-Policy)")
-    parser.add_argument("--timesteps", type=int, default=100000)
-    parser.add_argument("--relaunch-every", type=int, default=3)
+    parser = argparse.ArgumentParser(description="Train a TORCS AI using SAC (Off-Policy)")
+    parser.add_argument("--timesteps", type=int, default=1000000)
+    parser.add_argument("--relaunch-every", type=int, default=5)
     parser.add_argument("--port", type=int, default=3001)
     parser.add_argument("--vision", action="store_true")
     
@@ -213,7 +212,7 @@ def parse_args():
                         help="Launch command, e.g. 'torcs' or 'wine wtorcs.exe'.")
     parser.add_argument("--torcs-dir", type=str, default="",
                         help="Working directory for launch command.")
-    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints/checkpoints_ppo")
+    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints_sac")
     parser.add_argument("--checkpoint-every", type=int, default=5000)
     parser.add_argument("--autostart-script", type=str, default="gym_torcs/autostart.sh")
     
@@ -251,46 +250,47 @@ def main():
     ckpt_dir = Path(args.checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    model_file_final = ckpt_dir / "ppo_final.zip"
-    model_file_interrupted = ckpt_dir / "ppo_interrupted.zip"
+    model_file_final = ckpt_dir / "sac_final.zip"
+    model_file_interrupted = ckpt_dir / "sac_interrupted.zip"
     
     if model_file_interrupted.exists():
-        print(f"Loading existing PPO Agent from {model_file_interrupted}...")
-        model = PPO.load(str(ckpt_dir / "ppo_interrupted"), env=env, tensorboard_log=str(ckpt_dir / "logs"))
+        print(f"Loading existing SAC Agent from {model_file_interrupted}...")
+        model = SAC.load(str(ckpt_dir / "sac_interrupted"), env=env, tensorboard_log=str(ckpt_dir / "logs"))
     elif model_file_final.exists():
-        print(f"Loading existing PPO Agent from {model_file_final}...")
-        model = PPO.load(str(ckpt_dir / "ppo_final"), env=env, tensorboard_log=str(ckpt_dir / "logs"))
+        print(f"Loading existing SAC Agent from {model_file_final}...")
+        model = SAC.load(str(ckpt_dir / "sac_final"), env=env, tensorboard_log=str(ckpt_dir / "logs"))
     else:
-        print("Initializing new PPO Agent...")
-        model = PPO(
+        print("Initializing new SAC Agent...")
+        model = SAC(
             "MlpPolicy", 
             env, 
             verbose=1,
-            policy_kwargs=dict(net_arch=[dict(pi=[256, 256], vf=[256, 256])]),
-            ent_coef=0.01,          
-            learning_rate=1e-4,
-            n_steps=2048,          
-            batch_size=64,
-            n_epochs=10,         
-            gamma=0.99,
-            gae_lambda=0.95,
+            learning_rate=3e-4,              # Standard SAC learning rate
+            buffer_size=200000,              # Replay buffer to reuse old experiences
+            batch_size=256,                  # Larger batches for stability
+            ent_coef='auto',                 # Automatic entropy turning (exploration/exploitation balance)
+            gamma=0.99,                      # Discount factor
+            tau=0.005,                       # Soft update coefficient
+            train_freq=1,                    # Update the model every step
+            gradient_steps=1,                # How many gradient steps to do after each rollout
+            policy_kwargs=dict(net_arch=[256, 256]),
             tensorboard_log=str(ckpt_dir / "logs") 
         )
 
     checkpoint_callback = TensorboardLapTimeCallback(
         save_freq=args.checkpoint_every, 
         save_path=str(ckpt_dir), 
-        name_prefix='ppo_torcs'
+        name_prefix='sac_torcs'
     )
 
     print(f"Starting Training for {args.timesteps} timesteps...")
     try:
         model.learn(total_timesteps=args.timesteps, callback=checkpoint_callback, reset_num_timesteps=False)
-        model.save(str(ckpt_dir / "ppo_final"))
+        model.save(str(ckpt_dir / "sac_final"))
         print("Training Completed and Model Saved!")
     except KeyboardInterrupt:
         print("\nTraining interrupted! Saving current model...")
-        model.save(str(ckpt_dir / "ppo_interrupted"))
+        model.save(str(ckpt_dir / "sac_interrupted"))
     finally:
         env.close()
 
