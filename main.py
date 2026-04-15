@@ -1,8 +1,9 @@
 import math
 
 from src import Client
+from src.mapper import Mapper
 
-TARGET_SPEED = 100  # Target speed in km/h. Increasing this makes the car go faster but may reduce stability.
+TARGET_SPEED = 50  # Target speed in km/h. Increasing this makes the car go faster but may reduce stability.
 STEER_GAIN = (
     30  # Steering sensitivity. Higher values make the car turn more aggressively.
 )
@@ -65,8 +66,12 @@ def drive_modular(c):
 # ================= MAIN LOOP =================
 if __name__ == "__main__":
     C = Client(p=3001)
+    mapper = Mapper(print_image=True, live_plot=True)
     for step in range(C.maxSteps, 0, -1):
         C.get_servers_input()
+        mapper.update(C.S.d)
         drive_modular(C)
         C.respond_to_server()
+    mapper.save_json()
+    mapper.close()
     C.shutdown()
