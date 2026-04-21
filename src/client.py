@@ -30,7 +30,8 @@ version = "20130505-2"
 
 class Client:
     def __init__(
-        self, H=None, p=None, i=None, e=None, t=None, s=None, d=None, vision=False
+        self, H=None, p=None, i=None, e=None, t=None, s=None, d=None, vision=False,
+        parse_command_line=True
     ):
         self.vision = vision
 
@@ -42,7 +43,8 @@ class Client:
         self.stage = 3  # 0=Warm-up, 1=Qualifying 2=Race, 3=unknown <Default=3>
         self.debug = False
         self.maxSteps = 100000  # 50steps/second
-        self.parse_the_command_line()
+        if parse_command_line:
+            self.parse_the_command_line()
         if H:
             self.host = H
         if p:
@@ -81,24 +83,16 @@ class Client:
                 sys.exit(-1)
             sockdata = str()
             try:
-                sockdata, addr = self.so.recvfrom(data_size)
-                sockdata = sockdata.decode("utf-8")
-            except socket.error:
+                received, addr = self.so.recvfrom(data_size)
+                sockdata = received.decode("utf-8")
+            except Exception as e:
                 print("Waiting for server on %d............" % self.port)
                 print("Count Down : " + str(n_fail))
                 if n_fail < 0:
                     print("relaunch torcs")
-                    os.system("pkill torcs")
-                    time.sleep(1.0)
-                    if self.vision is False:
-                        os.system("torcs -nofuel -nodamage -nolaptime &")
-                    else:
-                        os.system("torcs -nofuel -nodamage -nolaptime -vision &")
-
-                    time.sleep(1.0)
-                    os.system("sh autostart.sh")
-                    n_fail = 5
+                    raise RuntimeError("Torcs failed to boot correctly! Raising up to process manager...")
                 n_fail -= 1
+                continue
 
             identify = "***identified***"
             if identify in sockdata:
@@ -168,9 +162,9 @@ class Client:
 
         while True:
             try:
-                sockdata, addr = self.so.recvfrom(data_size)
-                sockdata = sockdata.decode("utf-8")
-            except socket.error:
+                received, addr = self.so.recvfrom(data_size)
+                sockdata = received.decode("utf-8")
+            except Exception as e:
                 print(".", end=" ")
             if "***identified***" in sockdata:
                 print("Client connected on %d.............." % self.port)
