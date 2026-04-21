@@ -1,6 +1,5 @@
 torcs/*
-gym_torcs/vtorcs-RL-color/*
-gym_torcs/.git_old/*
+gym_torcs/
 TORCS_Python_Windows_Troubleshooting_Guide.docx
 src/__pycache__/*
 checkpoints/*
