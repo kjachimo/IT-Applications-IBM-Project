@@ -5,3 +5,4 @@ TORCS_Python_Windows_Troubleshooting_Guide.docx
 src/__pycache__/*
 checkpoints/*
 __pycache__/*
+.venv/*
