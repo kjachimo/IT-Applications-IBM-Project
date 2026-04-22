@@ -2,6 +2,9 @@ torcs/*
 gym_torcs/
 TORCS_Python_Windows_Troubleshooting_Guide.docx
 src/__pycache__/*
-checkpoints/*
+checkpoints/**
+!checkpoints/checkpoints_sac/
+!checkpoints/checkpoints_sac/exp1/
+!checkpoints/checkpoints_sac/exp1/sac_best_distance.zip
 __pycache__/*
 .venv/*
