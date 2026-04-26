@@ -1,0 +1,35 @@
+target-version = "py312"
+line-length = 100
+
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    "torcs",
+    "gym_torcs/vtorcs-RL-color",
+]
+
+[lint]
+select = [
+    "E",
+    "F",
+    "W",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+]
+ignore = [
+    "E501",
+]
+
+[lint.isort]
+combine-as-imports = true
+force-sort-within-sections = true
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
