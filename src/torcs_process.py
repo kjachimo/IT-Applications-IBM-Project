@@ -26,10 +26,12 @@ class TorcsProcessManager:
         self,
         autostart_script: str,
         config: Optional[TorcsProcessConfig] = None,
+        manual: bool = False,
     ):
         self.config = config or TorcsProcessConfig()
         self.autostart_script = str(Path(autostart_script).resolve())
         self._torcs_proc = None
+        self.manual = manual
 
     def _launch_command(self):
         cmd = shlex.split(self.config.torcs_command)
@@ -65,6 +67,8 @@ class TorcsProcessManager:
         subprocess.run(["pkill", "-x", "torcs"], check=False)
 
     def launch(self):
+        if self.manual:
+            return
         self._pkill_torcs()
         launch_cwd = (
             str(Path(self.config.torcs_working_dir).resolve())
@@ -86,9 +90,13 @@ class TorcsProcessManager:
         self.launch()
 
     def stop(self):
+        if self.manual:
+            return
         self._pkill_torcs()
 
     def check_requirements(self):
+        if self.manual:
+            return []
         missing = []
         command_tokens = shlex.split(self.config.torcs_command)
         launcher = command_tokens[0] if command_tokens else ""

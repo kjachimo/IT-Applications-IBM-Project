@@ -6,5 +6,7 @@ checkpoints/**
 !checkpoints/checkpoints_sac/
 !checkpoints/checkpoints_sac/exp1/
 !checkpoints/checkpoints_sac/exp1/sac_best_distance.zip
+checkpoints/checkpoints_sac_finetune/
 __pycache__/*
 .venv/*
+README-local.md

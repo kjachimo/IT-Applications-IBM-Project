@@ -343,7 +343,7 @@ def parse_args():
         default="torcs",
         help="Working directory for launch command.",
     )
-    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints_sac_finetune")
+    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints/checkpoints_sac_finetune")
     parser.add_argument("--checkpoint-every", type=int, default=5000)
     parser.add_argument(
         "--eval-freq",
@@ -364,6 +364,17 @@ def parse_args():
         help="Stop after this many eval runs without improvement.",
     )
     parser.add_argument("--autostart-script", type=str, default="gym_torcs/autostart.sh")
+    parser.add_argument(
+        "--manual",
+        action="store_true",
+        help="Skip TORCS launch/autostart — you start TORCS manually before running this script.",
+    )
+    parser.add_argument(
+        "--max-episode-steps",
+        type=int,
+        default=2000,
+        help="Max steps per episode (default: 2000).",
+    )
 
     return parser.parse_args()
 
@@ -387,6 +398,7 @@ def main():
             torcs_working_dir=args.torcs_dir,
             vision=args.vision,
         ),
+        manual=args.manual,
     )
 
     missing = process_manager.check_requirements()
@@ -399,7 +411,7 @@ def main():
         port=args.port,
         vision=args.vision,
         relaunch_every=args.relaunch_every,
-        max_steps=args.timesteps,  # shorter episodes for fine-tuning
+        max_steps=args.max_episode_steps,
     )
 
     env = GymTorcsWrapperSpeedOptimized(base_env)
