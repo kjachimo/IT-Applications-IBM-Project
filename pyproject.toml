@@ -7,10 +7,12 @@ requires-python = ">=3.12"
 dependencies = [
     "gym>=0.26.2",
     "matplotlib>=3.10.9",
+    "torch>=2.11.0",
 ]
 
 [project.scripts]
-experiment = "it_applications_ibm_project.example_experiment:main"
+example = "it_applications_ibm_project.example_experiment:main"
+td3 = "it_applications_ibm_project.td3_experiment:main"
 
 [build-system]
 requires = ["uv_build>=0.10.6,<0.11.0"]

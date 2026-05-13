@@ -28,14 +28,48 @@ class TorcsEnv:
 
         self.reset_torcs()
 
+        # Define action and observation spaces
+        # The action space consists of three continuous actions: steer, accel, and brake.
         self.action_space = spaces.Box(
             low=np.array([-1.0, 0.0, 0.0], dtype=np.float32),
             high=np.array([1.0, 1.0, 1.0], dtype=np.float32),
         )
 
+        # The observation space is defined based on the sensor data received from TORCS.
+        # angle, distFromStart, distRaced, speedX, speedY, speedZ, track, trackPos, wheelSpinVel, z
         if vision is False:
-            high = np.array([1.0, np.inf, np.inf, np.inf, 1.0, np.inf, 1.0, np.inf])
-            low = np.array([0.0, -np.inf, -np.inf, -np.inf, 0.0, -np.inf, 0.0, -np.inf])
+            high = []
+            low = []
+
+            # angle
+            high.append(1.0)
+            low.append(0.0)
+
+            # distFromStart, distRaced, speedX, speedY, speedZ,
+            for _ in range(5):
+                high.append(np.inf)
+                low.append(-np.inf)
+
+            # track
+            for _ in range(19):
+                high.append(200.0)
+                low.append(0.0)
+
+            # trackPos
+            high.append(np.inf)
+            low.append(-np.inf)
+
+            # wheelSpinVel
+            for _ in range(4):
+                high.append(np.inf)
+                low.append(0.0)
+
+            # z
+            high.append(np.inf)
+            low.append(-np.inf)
+
+            high = np.array(high, dtype=np.float32)
+            low = np.array(low, dtype=np.float32)
             self.observation_space = spaces.Box(low=low, high=high)
         else:
             high = np.array(
@@ -65,7 +99,7 @@ class TorcsEnv:
         track = np.array(obs.d["track"])
         sp = np.array(obs.d["speedX"])
         progress = sp * np.cos(obs.d["angle"])
-        reward = progress
+        reward = obs.d["distFromStart"]
 
         # collision detection
         if obs.d["damage"] - obs_pre.d["damage"] > 0:
