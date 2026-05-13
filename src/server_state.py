@@ -1,4 +1,4 @@
-from .utils import destringify, bargraph, PI
+from utils import destringify, bargraph, PI
 
 
 class ServerState:
