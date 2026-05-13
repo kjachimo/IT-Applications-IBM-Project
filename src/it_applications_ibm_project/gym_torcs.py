@@ -11,7 +11,7 @@ from it_applications_ibm_project import torcs_utils
 
 
 class TorcsEnv:
-    terminal_judge_start = 500  # Speed limit is applied after this step
+    terminal_judge_start = 200  # Speed limit is applied after this step
     termination_limit_progress = (
         5  # [km/h], episode terminates if car is running slower than this limit
     )
@@ -98,7 +98,7 @@ class TorcsEnv:
 
         track = np.array(obs.d["track"])
         sp = np.array(obs.d["speedX"])
-        progress = sp * np.cos(obs.d["angle"])
+        correct_speed = sp * np.cos(obs.d["angle"])
         reward = obs.d["distFromStart"]
 
         # collision detection
@@ -115,13 +115,14 @@ class TorcsEnv:
         if (
             self.terminal_judge_start < self.time_step
         ):  # Episode terminates if the progress of agent is small
-            if progress < self.termination_limit_progress:
+            if correct_speed < self.termination_limit_progress:
                 episode_terminate = True
                 driver_action.d["meta"] = True
 
         if (
             np.cos(obs.d["angle"]) < 0
         ):  # Episode is terminated if the agent runs backward
+            reward = -1
             episode_terminate = True
             driver_action.d["meta"] = True
 
@@ -131,7 +132,7 @@ class TorcsEnv:
 
         self.time_step += 1
 
-        return self.observation, reward, driver_action.d.get("meta", 0), {}
+        return self.observation, reward, episode_terminate, {}
 
     def reset(self, relaunch: bool = False) -> SensorData:
         # print("Reset")

@@ -82,6 +82,10 @@ class ReplayBuffer:
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
 
+    def clear(self):
+        self.ptr = 0
+        self.size = 0
+
     def sample(self, batch_size):
         idx = np.random.randint(0, self.size, size=batch_size)
 
@@ -137,6 +141,7 @@ class TD3(nn.Module):
         return tensor_to_action(torch.FloatTensor(action_t.reshape(1, -1)))
 
     def train(self, replay_buffer, batch_size=256):
+        print("Training TD3...")
         self.total_it += 1
 
         state, action, next_state, reward, done = replay_buffer.sample(batch_size)

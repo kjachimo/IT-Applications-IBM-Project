@@ -2,6 +2,7 @@ from it_applications_ibm_project.gym_torcs import TorcsEnv
 from it_applications_ibm_project.td3_agent import TD3, ReplayBuffer
 from it_applications_ibm_project.torcs_utils import automatic_transmission
 from it_applications_ibm_project.driver_action import DriverAction
+from it_applications_ibm_project.expert import drive_modular
 import numpy as np
 
 
@@ -34,8 +35,10 @@ def main() -> None:
             ob = env.reset()
 
         total_reward = 0.0
-        for _j in range(max_steps):
+        for j in range(max_steps):
             action = model.select_action(ob)
+            if j == 0:
+                expert_action = action.copy()
             action["gear"] = automatic_transmission(ob)
             driver_action = DriverAction()
             driver_action.d = action
@@ -44,15 +47,19 @@ def main() -> None:
 
             next_ob, reward, done, _ = env.step(action)
 
-            replay_buffer.add(ob, action, next_ob, reward, done)
+            expert_action = drive_modular(ob, expert_action)
+
+            replay_buffer.add(ob, expert_action, next_ob, reward, done)
 
             ob = next_ob
 
             if replay_buffer.size > 1000:
                 model.train(replay_buffer, batch_size=256)
+                replay_buffer.clear()
 
             step += 1
             if done:
+                model.train(replay_buffer, batch_size=256)
                 break
 
         print("TOTAL REWARD @ " + str(i) + " -th Episode  :  " + str(total_reward))
