@@ -195,6 +195,10 @@ class TD3(nn.Module):
     def save(self, path: str):
         torch.save(self.state_dict(), path)
 
+    def load(self, path: str):
+        print(f"Loading TD3 model from {path}...")
+        self.load_state_dict(torch.load(path))
+
 
 def state_to_tensor(state: SensorData) -> torch.FloatTensor:
     state_t = torch.tensor(

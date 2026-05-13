@@ -4,15 +4,22 @@ from it_applications_ibm_project.torcs_utils import automatic_transmission
 from it_applications_ibm_project.driver_action import DriverAction
 from it_applications_ibm_project.expert import drive_modular
 import numpy as np
+from pathlib import Path
+import sys
+
+SAVE_DIR = Path("models/td3")
+LAST_MODEL_PATH = SAVE_DIR / "td3_actor_last.pth"
+BEST_MODEL_PATH = SAVE_DIR / "td3_actor_best.pth"
 
 
 def main() -> None:
     vision = False
-    episode_count = 10
+    episode_count = 100
     max_steps = 5000
-    reward = 0
     done = False
     step = 0
+
+    SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
     env = TorcsEnv(vision=vision)
 
@@ -21,9 +28,10 @@ def main() -> None:
         action_dim=env.action_space.shape[0],
         max_action=1,
     )
-    replay_buffer = ReplayBuffer(
-        state_dim=env.observation_space.shape[0], action_dim=env.action_space.shape[0]
-    )
+    if len(sys.argv) > 1 and sys.argv[1] == "best":
+        model.load(str(BEST_MODEL_PATH))
+    else:
+        model.load(str(LAST_MODEL_PATH))
 
     print("TORCS Experiment Start.")
     for i in range(episode_count):
@@ -37,8 +45,6 @@ def main() -> None:
         total_reward = 0.0
         for j in range(max_steps):
             action = model.select_action(ob)
-            if j == 0:
-                expert_action = action.copy()
             action["gear"] = automatic_transmission(ob)
             driver_action = DriverAction()
             driver_action.d = action
@@ -47,26 +53,16 @@ def main() -> None:
 
             next_ob, reward, done, _ = env.step(action)
 
-            expert_action = drive_modular(ob, expert_action)
-
-            replay_buffer.add(ob, expert_action, next_ob, reward, done)
-
             ob = next_ob
-
-            if replay_buffer.size > 1000:
-                model.train(replay_buffer, batch_size=256)
-                replay_buffer.clear()
+            total_reward += reward
 
             step += 1
             if done:
-                model.train(replay_buffer, batch_size=256)
                 break
 
         print("TOTAL REWARD @ " + str(i) + " -th Episode  :  " + str(total_reward))
         print("Total Step: " + str(step))
         print("")
-
-        model.save(f"td3_actor_episode_{i}.pth")
 
     env.end()  # This is for shutting down TORCS
     print("Finish.")
