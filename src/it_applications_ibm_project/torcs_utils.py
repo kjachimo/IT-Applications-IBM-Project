@@ -64,11 +64,12 @@ def reset_torcs(
     return process
 
 
+GEAR_SPEEDS = [0, 20, 40, 80, 100, 180]
+
+
 def automatic_transmission(SensorData: SensorData) -> int:
-    """A simple automatic transmission function. It shifts up at 8000 rpm and down at 2500 rpm."""
-    if SensorData["rpm"] > 8000:
-        return 1
-    elif SensorData["rpm"] < 2500:
-        return -1
-    else:
-        return 0
+    gear = 1
+    for i, speed in enumerate(GEAR_SPEEDS):
+        if SensorData["speedX"] > speed:
+            gear = i + 1
+    return min(gear, 6)

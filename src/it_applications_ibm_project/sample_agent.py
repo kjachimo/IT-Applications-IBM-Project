@@ -26,6 +26,6 @@ class Agent(object):
             "brake": np.tanh(np.random.randn()),
         }
 
-        action["gear"] = action.get("gear", 0) + automatic_transmission(ob)
+        action["gear"] = automatic_transmission(ob)
 
         return action

@@ -6,7 +6,7 @@ import numpy as np
 def main() -> None:
     vision = False
     episode_count = 10
-    max_steps = 50
+    max_steps = 5000
     reward = 0
     done = False
     step = 0
