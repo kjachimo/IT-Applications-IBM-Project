@@ -4,8 +4,8 @@ import getopt
 import os
 import time
 
-from .server_state import ServerState
-from .driver_action import DriverAction
+from it_applications_ibm_project.server_state import ServerState
+from it_applications_ibm_project.driver_action import DriverAction
 
 data_size = 2**17
 

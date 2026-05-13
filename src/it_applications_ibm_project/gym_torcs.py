@@ -1,12 +1,13 @@
 import copy
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 from gym import spaces
 
-from driver_action import DriverAction
-from server_state import ServerState
-from simple_client import SimpleClient
-import torcs_utils
+from it_applications_ibm_project.driver_action import ActionData, DriverAction
+from it_applications_ibm_project.server_state import SensorData, ServerState
+from it_applications_ibm_project.simple_client import SimpleClient
+from it_applications_ibm_project import torcs_utils
 
 
 class TorcsEnv:
@@ -45,30 +46,22 @@ class TorcsEnv:
             )
             self.observation_space = spaces.Box(low=low, high=high)
 
-    def step(self, action) -> tuple[tuple, float, bool, dict]:
+    def step(self, action: ActionData) -> tuple[SensorData, float, int, dict]:
         client = self.client
-        driver_action = client.R
-        server_state = client.S
+        driver_action: DriverAction = client.R
+        server_state: ServerState = client.S
 
-        self.agent_to_torcs(action, driver_action)
+        driver_action.d = action
 
-        # Save the privious full-obs from torcs for the reward calculation
         obs_pre = copy.deepcopy(server_state)
 
-        # One-Step Dynamics Update #################################
-        # Apply the Agent's action into torcs
         client.respond_to_server()
-        # Get the response of TORCS
         client.get_servers_input()
 
-        # Get the current full-observation from torcs
         obs = server_state
 
-        # Make an obsevation from a raw observation vector from TORCS
-        self.observation = self.make_observaton(obs)
+        self.observation = server_state.d
 
-        # Reward setting Here #######################################
-        # direction-dependent positive reward
         track = np.array(obs.d["track"])
         sp = np.array(obs.d["speedX"])
         progress = sp * np.cos(obs.d["angle"])
@@ -98,15 +91,15 @@ class TorcsEnv:
             episode_terminate = True
             driver_action.d["meta"] = True
 
-        if driver_action.d["meta"] is True:  # Send a reset signal
+        if driver_action.d.get("meta", 0) is True:  # Send a reset signal
             self.initial_run = False
             client.respond_to_server()
 
         self.time_step += 1
 
-        return self.get_obs(), reward, driver_action.d["meta"], {}
+        return self.observation, reward, driver_action.d.get("meta", 0), {}
 
-    def reset(self, relaunch: bool = False) -> tuple:
+    def reset(self, relaunch: bool = False) -> SensorData:
         # print("Reset")
 
         self.time_step = 0
@@ -126,19 +119,17 @@ class TorcsEnv:
         client = self.client
         client.get_servers_input()  # Get the initial input from torcs
 
-        obs = client.S  # Get the current full-observation from torcs
-        self.observation = self.make_observaton(obs)
+        self.observation = (
+            client.S.d
+        )  # Make an obsevation from a raw observation vector from TORCS
 
         self.last_u = None
 
         self.initial_reset = False
-        return self.get_obs()
+        return self.observation
 
     def end(self) -> None:
         torcs_utils.stop_torcs(self._torcs_process)
-
-    def get_obs(self) -> tuple:
-        return self.observation
 
     def reset_torcs(self) -> None:
         print("relaunching torcs")
@@ -151,45 +142,6 @@ class TorcsEnv:
             exe="wtorcs.exe",
             use_wine=True,
         )
-
-    def agent_to_torcs(self, action, driver_action: DriverAction) -> None:
-        steer, accel, brake = self._action_values(action)
-        driver_action.d["steer"] = steer
-        driver_action.d["accel"] = accel
-        driver_action.d["brake"] = brake
-
-    def _action_values(self, action) -> tuple[float, float, float]:
-        if isinstance(action, dict):
-            if "steer" in action:
-                return (
-                    float(action["steer"]),
-                    float(action["accel"]),
-                    float(action["brake"]),
-                )
-            return (
-                float(action["steering"]),
-                float(action["acceleration"]),
-                float(action["brake"]),
-            )
-        if hasattr(action, "steering"):
-            return (
-                float(action.steering),
-                float(action.acceleration),
-                float(action.brake),
-            )
-        if hasattr(action, "steer"):
-            return (
-                float(action.steer),
-                float(action.accel),
-                float(action.brake),
-            )
-        try:
-            steer, accel, brake = action
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "Action must be mapping, object, or 3-item sequence"
-            ) from exc
-        return float(steer), float(accel), float(brake)
 
     def obs_vision_to_image_rgb(
         self, obs_image_vec: list[float] | np.ndarray
@@ -208,41 +160,48 @@ class TorcsEnv:
             temp = []
         return np.array(rgb, dtype=np.uint8)
 
-    def make_observaton(self, raw_obs: ServerState) -> tuple:
-        if self.vision:
-            image_rgb = self.obs_vision_to_image_rgb(raw_obs.d[names[8]])
-        else:
-            image_rgb = None
+    def make_observaton(self, raw_obs: ServerState) -> SensorData:
+        obs_data: SensorData = raw_obs.d
+        # if self.vision:
+        #     image_rgb = self.obs_vision_to_image_rgb(obs_data["vision"])
+        # else:
+        image_rgb = None
 
-        focus = np.array(raw_obs.d["focus"], dtype=np.float32) / 200.0
-        speed_x = np.array(raw_obs.d["speedX"], dtype=np.float32) / self.default_speed
-        speed_y = np.array(raw_obs.d["speedY"], dtype=np.float32) / self.default_speed
-        speed_z = np.array(raw_obs.d["speedZ"], dtype=np.float32) / self.default_speed
-        opponents = np.array(raw_obs.d["opponents"], dtype=np.float32) / 200.0
-        rpm = np.array(raw_obs.d["rpm"], dtype=np.float32)
-        track = np.array(raw_obs.d["track"], dtype=np.float32) / 200.0
-        wheel_spin_vel = np.array(raw_obs.d["wheelSpinVel"], dtype=np.float32)
+        focus = np.array(obs_data["focus"], dtype=np.float32) / 200.0
+        angle = obs_data["angle"]
+        speed_x = obs_data["speedX"] / self.default_speed
+        speed_y = obs_data["speedY"] / self.default_speed
+        speed_z = obs_data["speedZ"] / self.default_speed
+        rpm = obs_data["rpm"]
+        track = np.array(obs_data["track"], dtype=np.float32) / 200.0
+        track_pos = obs_data["trackPos"]
+        gear = obs_data["gear"]
+        stucktimer = obs_data["stucktimer"]
+        damage = obs_data["damage"]
+        fuel = obs_data["fuel"]
+        dist_raced = obs_data["distRaced"]
+        dist_from_start = obs_data["distFromStart"]
+        z_pos = obs_data["z"]
+        wheel_spin_vel = np.array(obs_data["wheelSpinVel"], dtype=np.float32)
+        opponents = obs_data["opponents"]
 
-        if self.vision:
-            return (
-                focus,
-                speed_x,
-                speed_y,
-                speed_z,
-                opponents,
-                rpm,
-                track,
-                wheel_spin_vel,
-                image_rgb,
-            )
-
-        return (
-            focus,
-            speed_x,
-            speed_y,
-            speed_z,
-            opponents,
-            rpm,
-            track,
-            wheel_spin_vel,
-        )
+        return {
+            "focus": focus,
+            "angle": angle,
+            "speedX": speed_x,
+            "speedY": speed_y,
+            "speedZ": speed_z,
+            "rpm": rpm,
+            "track": track,
+            "trackPos": track_pos,
+            "gear": gear,
+            "stucktimer": stucktimer,
+            "damage": damage,
+            "fuel": fuel,
+            "distRaced": dist_raced,
+            "distFromStart": dist_from_start,
+            "z": z_pos,
+            "wheelSpinVel": wheel_spin_vel,
+            "opponents": opponents,
+            "vision": image_rgb,
+        }

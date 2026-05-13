@@ -1,4 +1,30 @@
-from utils import destringify, bargraph, PI
+from typing import NotRequired, Sequence, TypedDict
+
+import numpy as np
+import numpy.typing as npt
+
+from it_applications_ibm_project.utils import destringify, bargraph, PI
+
+
+class SensorData(TypedDict):
+    focus: npt.NDArray[np.floating]
+    angle: float
+    track: npt.NDArray[np.floating]
+    trackPos: float
+    gear: int
+    stucktimer: int
+    damage: float
+    fuel: float
+    distRaced: float
+    distFromStart: float
+    z: float
+    speedX: float
+    speedY: float
+    speedZ: float
+    wheelSpinVel: npt.NDArray[np.floating] | Sequence[float]
+    rpm: float
+    opponents: Sequence[float]
+    vision: NotRequired[npt.NDArray[np.uint8] | Sequence[float] | None]
 
 
 class ServerState:
@@ -6,7 +32,26 @@ class ServerState:
 
     def __init__(self):
         self.servstr = str()
-        self.d = dict()
+        self.d: SensorData = {
+            "focus": np.array([], dtype=np.float32),
+            "angle": 0.0,
+            "track": np.array([], dtype=np.float32),
+            "trackPos": 0.0,
+            "gear": 0,
+            "stucktimer": 0,
+            "damage": 0.0,
+            "fuel": 0.0,
+            "distRaced": 0.0,
+            "distFromStart": 0.0,
+            "z": 0.0,
+            "speedX": 0.0,
+            "speedY": 0.0,
+            "speedZ": 0.0,
+            "wheelSpinVel": np.array([], dtype=np.float32),
+            "rpm": 0.0,
+            "opponents": [],
+            "vision": None,
+        }
 
     def parse_server_str(self, server_string):
         """Parse the server string."""

@@ -2,9 +2,11 @@ from pathlib import Path
 import subprocess
 import time
 
+from it_applications_ibm_project.server_state import SensorData
 
-_TORCS_DIR = Path(__file__).resolve().parent.parent / "torcs"
-_AUTOSTART_DIR = Path(__file__).resolve().parent
+
+_TORCS_DIR = Path(__file__).resolve().parent.parent.parent / "torcs"
+_AUTOSTART_DIR = Path(__file__).resolve().parent.parent
 
 
 def launch_torcs(vision=False, exe="wtorcs.exe", torcs_dir=None, use_wine=True):
@@ -60,3 +62,13 @@ def reset_torcs(
     if wait_after_autostart:
         time.sleep(wait_after_autostart)
     return process
+
+
+def automatic_transmission(SensorData: SensorData) -> int:
+    """A simple automatic transmission function. It shifts up at 8000 rpm and down at 2500 rpm."""
+    if SensorData["rpm"] > 8000:
+        return 1
+    elif SensorData["rpm"] < 2500:
+        return -1
+    else:
+        return 0

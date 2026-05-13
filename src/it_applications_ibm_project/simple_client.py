@@ -2,10 +2,9 @@ import socket
 import sys
 from typing import Optional
 
-import torcs_utils
-
-from driver_action import DriverAction
-from server_state import ServerState
+from it_applications_ibm_project import torcs_utils
+from it_applications_ibm_project.driver_action import DriverAction
+from it_applications_ibm_project.server_state import ServerState
 
 data_size = 2**17
 
