@@ -19,7 +19,11 @@ class Actor(nn.Module):
     def forward(self, state):
         a = F.relu(self.l1(state))
         a = F.relu(self.l2(a))
-        return self.max_action * torch.tanh(self.l3(a))
+        a = self.l3(a)
+        steer = self.max_action * torch.tanh(a[:, 0:1])
+        accel = torch.sigmoid(a[:, 1:2])
+        brake = torch.sigmoid(a[:, 2:3])
+        return torch.cat([steer, accel, brake], dim=1)
 
 
 class Critic(nn.Module):
