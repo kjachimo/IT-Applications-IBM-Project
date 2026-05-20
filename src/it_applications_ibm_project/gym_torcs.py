@@ -2,7 +2,7 @@ import copy
 from typing import Any, Mapping, Sequence
 
 import numpy as np
-from gym import spaces
+from gymnasium import spaces
 
 from it_applications_ibm_project.driver_action import ActionData, DriverAction
 from it_applications_ibm_project.server_state import SensorData, ServerState
@@ -99,16 +99,34 @@ class TorcsEnv:
         track = np.array(obs.d["track"])
         sp = np.array(obs.d["speedX"])
         correct_speed = sp * np.cos(obs.d["angle"])
-        reward = obs.d["distFromStart"]
 
-        # collision detection
+        # Reward: combine forward progress (delta of distFromStart) with
+        # forward-aligned speed to provide a denser positive signal when
+        # the agent moves forward. Keep a tiny time penalty to discourage
+        # dithering but avoid making the net reward negative for small
+        # positive progress.
+        # Small step penalty (very small)
+        Vx = obs.d["speedX"] / self.default_speed
+        theta = obs.d["angle"]
+        forward = Vx * np.cos(theta)
+        lateral = abs(Vx * np.sin(theta))
+        pos_pen = Vx * abs(obs.d["trackPos"])
+
+        alpha, beta, gamma = 1.0, 1.0, 1.0
+        eps_time = 0.001
+
+        reward = alpha * forward - beta * lateral - gamma * pos_pen - eps_time
+
+        # collision detection (strong negative penalty)
         if obs.d["damage"] - obs_pre.d["damage"] > 0:
-            reward = -1
+            print("Collision detected!")
+            reward = -5.0
 
         # Termination judgement #########################
         episode_terminate = False
         if track.min() < 0:  # Episode is terminated if the car is out of track
-            reward = -1
+            print("Out of track!")
+            reward = -5.0
             episode_terminate = True
             driver_action.d["meta"] = True
 
@@ -116,6 +134,8 @@ class TorcsEnv:
             self.terminal_judge_start < self.time_step
         ):  # Episode terminates if the progress of agent is small
             if correct_speed < self.termination_limit_progress:
+                print("Too slow!")
+                reward = -5
                 episode_terminate = True
                 driver_action.d["meta"] = True
 
