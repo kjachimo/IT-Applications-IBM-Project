@@ -1,4 +1,6 @@
 from pathlib import Path
+import os
+import signal
 import subprocess
 import time
 
@@ -15,21 +17,37 @@ def launch_torcs(vision=False, exe="wtorcs.exe", torcs_dir=None, use_wine=True):
         cmd.insert(0, "wine")
     if vision is True:
         cmd.append("-vision")
-    return subprocess.Popen(cmd, cwd=str(torcs_dir or _TORCS_DIR))
+    return subprocess.Popen(
+        cmd, cwd=str(torcs_dir or _TORCS_DIR), start_new_session=True
+    )
 
 
 def launch_autostart(autostart_dir=None):
     cmd = ["sh", "autostart.sh"]
-    return subprocess.Popen(cmd, cwd=str(autostart_dir or _AUTOSTART_DIR))
+    return subprocess.Popen(
+        cmd, cwd=str(autostart_dir or _AUTOSTART_DIR), start_new_session=True
+    )
 
 
 def stop_torcs(process=None, kill_fallback=False):
     if process and process.poll() is None:
-        process.terminate()
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        except Exception:
+            try:
+                process.terminate()
+            except Exception:
+                pass
         try:
             process.wait(timeout=3)
         except subprocess.TimeoutExpired:
-            process.kill()
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
             process.wait(timeout=3)
     if kill_fallback:
         subprocess.run(["pkill", "torcs"], check=False)
