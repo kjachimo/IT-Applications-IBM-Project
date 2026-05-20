@@ -5,24 +5,29 @@ from it_applications_ibm_project.server_state import SensorData
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 
 class Actor(nn.Module):
-    def __init__(self, state_dim, action_dim, max_action):
+    def __init__(self, state_dim, action_dim):
+        ## Inspired by https://github.com/yanpanlau/DDPG-Keras-Torcs/blob/master/ActorNetwork.py
         super().__init__()
         self.l1 = nn.Linear(state_dim, 256)
-        self.l2 = nn.Linear(256, 256)
-        self.l3 = nn.Linear(256, action_dim)
-
-        self.max_action = max_action
+        self.l2 = nn.Linear(256, 512)
+        self.l_S = nn.Linear(512, 1)  # Steering output
+        self.l_A = nn.Linear(512, 1)  # Acceleration output
+        self.l_B = nn.Linear(512, 1)  # Brake output
+        #
+        nn.init.normal_(self.l_S.weight, -1e-4, 1e-4)
+        nn.init.normal_(self.l_A.weight, -1e-4, 1e-4)
+        nn.init.normal_(self.l_B.weight, -1e-4, 1e-4)
 
     def forward(self, state):
         a = F.relu(self.l1(state))
         a = F.relu(self.l2(a))
-        a = self.l3(a)
-        steer = self.max_action * torch.tanh(a[:, 0:1])
-        accel = torch.sigmoid(a[:, 1:2])
-        brake = torch.sigmoid(a[:, 2:3])
+        steer = torch.tanh(self.l_S(a))  # Steering in range [-1, 1]
+        accel = torch.sigmoid(self.l_A(a))  # Acceleration in range [0, 1]
+        brake = torch.sigmoid(self.l_B(a))  # Brake in range [0, 1]
         return torch.cat([steer, accel, brake], dim=1)
 
 
@@ -108,6 +113,9 @@ class TD3(nn.Module):
         state_dim,
         action_dim,
         max_action,
+        ou_theta=None,
+        ou_mu=None,
+        ou_sigma=None,
         discount=0.99,
         tau=0.005,
         policy_noise=0.2,
@@ -118,8 +126,8 @@ class TD3(nn.Module):
         print(
             f"Initializing TD3 with state_dim={state_dim}, action_dim={action_dim}, max_action={max_action}"
         )
-        self.actor = Actor(state_dim, action_dim, max_action)
-        self.actor_target = Actor(state_dim, action_dim, max_action)
+        self.actor = Actor(state_dim, action_dim)
+        self.actor_target = Actor(state_dim, action_dim)
         self.actor_target.load_state_dict(self.actor.state_dict())
 
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=3e-4)
@@ -131,6 +139,17 @@ class TD3(nn.Module):
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=3e-4)
 
         self.max_action = max_action
+        # Per-dimension action bounds: [steer, accel, brake]
+        self.action_low = torch.tensor([-1.0, 0.0, 0.0], dtype=torch.float32)
+        self.action_high = torch.tensor([1.0, 1.0, 1.0], dtype=torch.float32)
+        # Ornstein-Uhlenbeck process for exploration (per-dimension)
+        default_theta = np.array([0.6, 1.0, 1.0], dtype=np.float32)
+        default_mu = np.array([0.0, 0.45, -0.1], dtype=np.float32)
+        default_sigma = np.array([0.30, 0.10, 0.05], dtype=np.float32)
+        self.ou_theta = np.array(ou_theta, dtype=np.float32) if ou_theta is not None else default_theta
+        self.ou_mu = np.array(ou_mu, dtype=np.float32) if ou_mu is not None else default_mu
+        self.ou_sigma = np.array(ou_sigma, dtype=np.float32) if ou_sigma is not None else default_sigma
+        self._ou_state = self.ou_mu.copy()
         self.discount = discount
         self.tau = tau
         self.policy_noise = policy_noise
@@ -140,9 +159,28 @@ class TD3(nn.Module):
         self.total_it = 0
 
     def select_action(self, state: SensorData):
+        return self.select_action_noisy(state, noise=False)
+
+    def select_action_noisy(self, state: SensorData, noise: bool = False):
         state_t = state_to_tensor(state)
-        action_t = self.actor(state_t).detach().numpy()[0]
+        action_t = self.actor(state_t).detach().cpu().numpy()[0]
+        if noise:
+            # Sample OU noise and add to action
+            noise_sample = self._ou_sample()
+            action_t = action_t + noise_sample
+        # Clip per-dimension to action bounds
+        action_t = np.minimum(np.maximum(action_t, self.action_low.numpy()), self.action_high.numpy())
         return tensor_to_action(torch.FloatTensor(action_t.reshape(1, -1)))
+
+    def reset_noise(self):
+        # Reset OU internal state to mean
+        self._ou_state = self.ou_mu.copy()
+
+    def _ou_sample(self):
+        # Discrete-time OU: x_{t+1} = x_t + theta*(mu - x_t) + sigma * N(0,1)
+        dx = self.ou_theta * (self.ou_mu - self._ou_state) + self.ou_sigma * np.random.randn(*self._ou_state.shape)
+        self._ou_state = self._ou_state + dx
+        return self._ou_state
 
     def train(self, replay_buffer, batch_size=256):
         print("Training TD3...")
@@ -155,9 +193,12 @@ class TD3(nn.Module):
                 -self.noise_clip, self.noise_clip
             )
 
-            next_action = (self.actor_target(next_state) + noise).clamp(
-                -self.max_action, self.max_action
-            )
+            # Add noise to the target action and clamp per-dimension so
+            # accel/brake remain within [0,1] while steer stays within [-1,1].
+            next_action = self.actor_target(next_state) + noise
+            action_low = self.action_low.to(next_action.device)
+            action_high = self.action_high.to(next_action.device)
+            next_action = torch.max(torch.min(next_action, action_high), action_low)
 
             target_Q1, target_Q2 = self.critic_target(next_state, next_action)
             target_Q = torch.min(target_Q1, target_Q2)
@@ -233,7 +274,8 @@ def tensor_to_action(action_tensor) -> ActionData:
 
 
 def action_to_tensor(action: ActionData) -> torch.Tensor:
+    # Return as a 2D tensor with shape (1, action_dim) to match state tensors
     return torch.tensor(
-        [action.get("steer", 0.0), action.get("accel", 0.0), action.get("brake", 0.0)],
+        [[action.get("steer", 0.0), action.get("accel", 0.0), action.get("brake", 0.0)]],
         dtype=torch.float32,
     )
