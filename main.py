@@ -3,7 +3,7 @@ import math
 from src import Client
 from src.it_applications_ibm_project.prediction import SteeringModel
 
-TARGET_SPEED = 85  # Target speed in km/h. Increasing this makes the car go faster but may reduce stability.
+TARGET_SPEED = 70  # Target speed in km/h. Increasing this makes the car go faster but may reduce stability.
 BRAKE_THRESHOLD = 0.9  # Angle threshold for braking. Lower values brake earlier.
 GEAR_SPEEDS = [0, 20, 40, 80, 100, 180]  # Speed thresholds for gear shifting.
 ENABLE_TRACTION_CONTROL = True  # Toggle traction control system.
@@ -13,16 +13,41 @@ STEERING_MODEL = SteeringModel()
 
 
 def calculate_steering(S):
-    baseline = (S["angle"] / math.pi) - (S["trackPos"] * 0.7)
-    learned_adjustment = 0.2 * STEERING_MODEL.predict(S)
+    baseline = (S["angle"] / math.pi) - (S["trackPos"] * 0.4)
+    learned_adjustment = 0.15 * STEERING_MODEL.predict(S)
     steer = baseline + learned_adjustment
     return max(-1, min(1, steer))
+
+
+def predict_track_difficulty(S):
+    """Use model curvature detection to predict speed penalty.
+    
+    Higher curvature = sharper turn = more speed penalty.
+    Returns:
+        penalty (float): Speed reduction (0.0 to 50.0 km/h)
+    """
+    track = S.get("track") or []
+    curvature = STEERING_MODEL._curvature_hint(track)
+    
+    # Convert curvature to speed penalty
+    # curvature ranges from about -0.3 to +0.3, we map that to penalties
+    curve_magnitude = abs(curvature)
+    
+    if curve_magnitude > 0.12:  # Sharp turn
+        return 35.0
+    elif curve_magnitude > 0.06:  # Moderate turn
+        return 20.0
+    elif curve_magnitude > 0.02:  # Gentle turn
+        return 8.0
+    else:
+        return 0.0  # Straight
 
 
 def calculate_throttle(S, R):
     steer_mag = abs(R["steer"])
     curve_penalty = steer_mag * 22.0
-    target_speed = TARGET_SPEED - curve_penalty
+    track_difficulty_penalty = predict_track_difficulty(S)
+    target_speed = TARGET_SPEED - curve_penalty - track_difficulty_penalty
     if S["speedX"] < target_speed:
         accel = min(1.0, R["accel"] + 0.25)
     else:
