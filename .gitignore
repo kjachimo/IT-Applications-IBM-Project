@@ -6,5 +6,6 @@ checkpoints/**
 !checkpoints/checkpoints_sac/
 !checkpoints/checkpoints_sac/exp1/
 !checkpoints/checkpoints_sac/exp1/sac_best_distance.zip
+!checkpoints/checkpoints_sac/sac_snapshot_1:51:90
 __pycache__/*
 .venv/*
