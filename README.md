@@ -3,10 +3,8 @@
 AI driver for Torcs using SAC (Soft Actor-Critic).
 
 ## Best times
-
-| Track | Time (mm:ss) | Algorithm |
-| -------------- | --------------- | --------- |
-| Corkscrew | 02:15.75 | SAC |
+Best Time (mm:ss:ms) -- 1:51:93
+Video: https://drive.google.com/file/d/1PiEQ3kvT0bLX-mitOikhGxC_qjnD5sjg/view?usp=sharing
 
 ## Installation
 
